@@ -29,10 +29,10 @@ class NaiveBayes:
             delta (float): Smoothing parameter for Laplace smoothing.
         """
         # TODO: Estimate class priors and conditional probabilities of the bag of words 
-        self.class_priors = None
-        self.vocab_size = None # Shape of the probability tensors, useful for predictions and conditional probabilities
-        self.conditional_probabilities = None
-        return
+        self.class_priors = self.estimate_class_priors(labels)  # Estimar priors
+        self.vocab_size = features.shape[1]  # Definir vocab_size
+        self.conditional_probabilities = self.estimate_conditional_probabilities(features, labels, delta)
+
 
     def estimate_class_priors(self, labels: torch.Tensor) -> Dict[int, torch.Tensor]:
         """
@@ -45,7 +45,10 @@ class NaiveBayes:
             Dict[int, torch.Tensor]: A dictionary mapping class labels to their estimated prior probabilities.
         """
         # TODO: Count number of samples for each output class and divide by total of samples
-        class_priors: Dict[int, torch.Tensor] = None
+        num_samples = labels.shape[0]  
+        class_counts = torch.bincount(labels.to(torch.int64))  
+        class_priors = {i: count / num_samples for i, count in enumerate(class_counts)}
+
         return class_priors
 
     def estimate_conditional_probabilities(
@@ -63,14 +66,24 @@ class NaiveBayes:
             Dict[int, torch.Tensor]: Conditional probabilities of each word for each class.
         """
         # TODO: Estimate conditional probabilities for the words in features and apply smoothing
-        class_word_counts: Dict[int, torch.Tensor] = None
+        num_classes = int(torch.max(labels).item()) + 1  
+        vocab_size = features.shape[1]  
 
-        return class_word_counts
+        word_counts = {c: torch.zeros(vocab_size) for c in range(num_classes)}
+        
+        for c in range(num_classes):
+            class_features = features[labels == c]  
+            word_counts[c] = class_features.sum(dim=0)  
 
-    def estimate_class_posteriors(
-        self,
-        feature: torch.Tensor,
-    ) -> torch.Tensor:
+        conditional_probs = {
+            c: (word_counts[c] + delta) / (word_counts[c].sum() + delta * vocab_size)
+            for c in range(num_classes)
+        }
+
+        return conditional_probs
+    
+
+    def estimate_class_posteriors(self, feature: torch.Tensor) -> torch.Tensor:
         """
         Estimate the class posteriors for a given feature using the Naive Bayes logic.
 
@@ -81,13 +94,17 @@ class NaiveBayes:
             torch.Tensor: Log posterior probabilities for each class.
         """
         if self.conditional_probabilities is None or self.class_priors is None:
-            raise ValueError(
-                "Model must be trained before estimating class posteriors."
-            )
-        # TODO: Calculate posterior based on priors and conditional probabilities of the words
-        log_posteriors: torch.Tensor = None
-        return log_posteriors
+            raise ValueError("Model must be trained before estimating class posteriors.")
 
+        log_posteriors = {}
+
+        for c in self.class_priors:
+            log_prior = torch.log(self.class_priors[c])  # Log of the prior probability
+            log_likelihood = torch.sum(feature * torch.log(self.conditional_probabilities[c]))  # Sum log probabilities of words
+            log_posteriors[c] = log_prior + log_likelihood  # Naive Bayes formula in log space
+
+        return torch.tensor([log_posteriors[0], log_posteriors[1]])
+    
     def predict(self, feature: torch.Tensor) -> int:
         """
         Classifies a new feature using the trained Naive Bayes classifier.
@@ -105,7 +122,11 @@ class NaiveBayes:
             raise Exception("Model not trained. Please call the train method first.")
         
         # TODO: Calculate log posteriors and obtain the class of maximum likelihood 
-        pred: int = None
+        
+        log_posteriors = self.estimate_class_posteriors(feature)  
+
+        pred = torch.argmax(log_posteriors).item() 
+        
         return pred
 
     def predict_proba(self, feature: torch.Tensor) -> torch.Tensor:
@@ -125,5 +146,8 @@ class NaiveBayes:
             raise Exception("Model not trained. Please call the train method first.")
 
         # TODO: Calculate log posteriors and transform them to probabilities (softmax)
-        probs: torch.Tensor = None
+        log_posteriors = self.estimate_class_posteriors(feature)  # Compute log probabilities
+
+        probs = torch.nn.functional.softmax(log_posteriors, dim=0)  # Convert log probabilities to normalized probabilities
+
         return probs

@@ -33,7 +33,32 @@ class LogisticRegression:
             None: The function updates the model weights in place.
         """
         # TODO: Implement gradient-descent algorithm to optimize logistic regression weights
-        return
+        num_samples, num_features = features.shape
+
+        if self._weights is None:
+            self._weights = self.initialize_parameters(num_features, self.random_state)
+
+        # Añadir bias (columna de unos)
+        bias = torch.ones((num_samples, 1), dtype=torch.float32)
+        features = torch.cat((features, bias), dim=1)
+
+        for epoch in range(epochs):
+            logits = torch.matmul(features, self._weights)
+            predictions = self.sigmoid(logits)
+
+            loss = self.binary_cross_entropy_loss(predictions, labels)
+
+            # **Corregimos el gradiente usando la derivada de BCE**
+            gradient = torch.matmul(features.T, (predictions - labels)) / num_samples
+
+            # **Actualización de pesos**
+            self._weights -= learning_rate * gradient
+
+            if epoch % 10 == 0:
+                print(f"Epoch {epoch}/{epochs} - Loss: {loss.item()}")
+
+        print("Final Weights:", self._weights)  # DEBUG: Imprimir pesos finales
+
 
     def predict(self, features: torch.Tensor, cutoff: float = 0.5) -> torch.Tensor:
         """
@@ -46,8 +71,15 @@ class LogisticRegression:
         Returns:
             torch.Tensor: Predicted class labels (0 or 1).
         """
-        decisions: torch.Tensor = None
-        return decisions
+        if self._weights is None:
+            raise ValueError("Model not trained. Call 'fit' first.")
+
+        num_samples = features.shape[0]
+        bias = torch.ones((num_samples, 1), dtype=torch.float32)
+        features = torch.cat((features, bias), dim=1)
+
+        probabilities = self.sigmoid(torch.matmul(features, self._weights))
+        return (probabilities >= cutoff).to(torch.int)
 
     def predict_proba(self, features: torch.Tensor) -> torch.Tensor:
         """
@@ -62,12 +94,14 @@ class LogisticRegression:
         Raises:
             ValueError: If the model weights are not initialized (model not trained).
         """
-        if self.weights is None:
-            raise ValueError("Model not trained. Call the 'train' method first.")
-        
-        probabilities: torch.Tensor = None
-        
-        return probabilities
+        if self._weights is None:
+            raise ValueError("Model not trained. Call 'fit' first.")
+
+        num_samples = features.shape[0]
+        bias = torch.ones((num_samples, 1), dtype=torch.float32)
+        features = torch.cat((features, bias), dim=1)
+
+        return self.sigmoid(torch.matmul(features, self._weights))
 
     def initialize_parameters(self, dim: int, random_state: int) -> torch.Tensor:
         """
@@ -83,10 +117,10 @@ class LogisticRegression:
         Returns:
             torch.Tensor: Initialized weights as a tensor with size (dim + 1,).
         """
-        torch.manual_seed(random_state)
-        
-        params: torch.Tensor = None
-        
+        torch.manual_seed(random_state)  # Asegura reproducibilidad
+
+        params = torch.zeros(dim + 1, dtype=torch.float32) * 0.1 # Inicializamos en 0 en vez de valores aleatorios
+
         return params
 
     @staticmethod
@@ -103,8 +137,8 @@ class LogisticRegression:
         Returns:
             torch.Tensor: The sigmoid of z.
         """
-        result: torch.Tensor = None
-        return result
+
+        return 1 / (1 + torch.exp(-z))
 
     @staticmethod
     def binary_cross_entropy_loss(
@@ -123,8 +157,12 @@ class LogisticRegression:
         Returns:
             torch.Tensor: The computed binary cross-entropy loss.
         """
-        ce_loss: torch.Tensor = None
-        return ce_loss
+        epsilon = 1e-8  # Small value to prevent log(0)
+        predictions = torch.clamp(predictions, epsilon, 1 - epsilon)  # Ensure stability in log function
+
+        loss = -torch.mean(targets * torch.log(predictions) + (1 - targets) * torch.log(1 - predictions))
+        
+        return loss
 
     @property
     def weights(self):
